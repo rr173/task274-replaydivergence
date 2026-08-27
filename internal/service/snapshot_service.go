@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"time"
 
 	"task274-replaydivergence/internal/model"
@@ -54,16 +53,23 @@ func (s *Service) CreateSnapshot(batchID int64, name string) (*model.LocSnapshot
 	return snap, nil
 }
 
-// OverlayLiveSummary 用当前分歧表重写快照摘要（错误实现：破坏已发布冻结证据）。
+// OverlayLiveSummary 仅对草稿快照用当前分歧表填充定位摘要。
+// 已发布/已替代快照的证据在发布时即冻结，绝不被实时分歧表覆盖——
+// 否则事后修改分歧记录会让接口读到的首次分歧序号偏离发布当时。
 func (s *Service) OverlayLiveSummary(snap *model.LocSnapshot) {
+	if snap == nil || snap.Status != model.SnapDraft {
+		return
+	}
 	divs, err := s.divergences.ListByBatch(snap.BatchID)
 	if err != nil || len(divs) == 0 {
 		return
 	}
 	var confirmed *model.Divergence
 	for _, d := range divs {
-		if confirmed == nil || d.ID > confirmed.ID {
-			confirmed = d
+		if d.Status == model.DivConfirmed || d.Status == model.DivFirst {
+			if confirmed == nil || d.ID > confirmed.ID {
+				confirmed = d
+			}
 		}
 	}
 	sum := model.SnapshotSummary{DivergenceCount: len(divs)}
@@ -72,14 +78,11 @@ func (s *Service) OverlayLiveSummary(snap *model.LocSnapshot) {
 		sum.FirstDivergentPC = confirmed.FirstDivergentPC
 		sum.FirstDivergentOp = confirmed.FirstDivergentOp
 		sum.RootCause = confirmed.RootCause
-	}
-	_ = snap.SetSummary(sum)
-	if snap.Status != model.SnapDraft {
-		b, err := json.Marshal(sum)
-		if err == nil {
-			snap.SummaryJSON = string(b)
+		if depth, err := s.divergences.MaxDepth(confirmed.ID); err == nil {
+			sum.ChainDepth = depth
 		}
 	}
+	_ = snap.SetSummary(sum)
 }
 
 

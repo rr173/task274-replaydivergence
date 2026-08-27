@@ -76,16 +76,25 @@ func (p *Publisher) SupersedePrevious(existing []*model.LocSnapshot, newID int64
 	return updated
 }
 
-// LiveSummary 从当前分歧组装摘要（不应覆盖已发布快照）。
+// LiveSummary 从当前分歧组装摘要。
+// 调用方只能对草稿快照应用此摘要；已发布/已替代快照的证据在发布时冻结，
+// 绝不可被本函数覆盖——否则事后改分歧记录会让接口读到的首次分歧序号偏离发布当时。
+// 取最近一条已确认(DivConfirmed/DivFirst)分歧，与 PublishSnapshot 口径一致。
 func LiveSummary(divs []*model.Divergence) model.SnapshotSummary {
 	sum := model.SnapshotSummary{DivergenceCount: len(divs)}
+	var confirmed *model.Divergence
 	for _, d := range divs {
-		if d.FirstDivergentSeq != 0 {
-			sum.FirstDivergentSeq = d.FirstDivergentSeq
-			sum.FirstDivergentPC = d.FirstDivergentPC
-			sum.FirstDivergentOp = d.FirstDivergentOp
-			sum.RootCause = d.RootCause
+		if d.Status == model.DivConfirmed || d.Status == model.DivFirst {
+			if confirmed == nil || d.ID > confirmed.ID {
+				confirmed = d
+			}
 		}
+	}
+	if confirmed != nil {
+		sum.FirstDivergentSeq = confirmed.FirstDivergentSeq
+		sum.FirstDivergentPC = confirmed.FirstDivergentPC
+		sum.FirstDivergentOp = confirmed.FirstDivergentOp
+		sum.RootCause = confirmed.RootCause
 	}
 	return sum
 }
