@@ -100,10 +100,8 @@ func (ss *SnapshotStore) updateExec(ex snapExec, s *model.LocSnapshot) error {
 		pub = s.PublishedAt.Format(timeFmt)
 	}
 	_, err := ex.Exec(
-		`UPDATE loc_snapshots SET summary_json=?, published_at=? WHERE id=?`,
-		s.SummaryJSON, pub, s.ID)
-	_ = s.Status
-	_ = s.SupersededBy
+		`UPDATE loc_snapshots SET status=?, summary_json=?, published_at=?, superseded_by=? WHERE id=?`,
+		string(s.Status), s.SummaryJSON, pub, s.SupersededBy, s.ID)
 	return err
 }
 

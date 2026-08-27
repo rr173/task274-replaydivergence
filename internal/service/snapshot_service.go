@@ -109,8 +109,18 @@ func (s *Service) PublishSnapshot(ctx context.Context, batchID, snapID int64) (*
 		if err != nil {
 			return err
 		}
-		_ = existing
-		_ = s.publisher.SupersedePrevious(existing, snapID)
+		// 把旧已发布快照置为被替代，newID 指向新快照本身不被替代。
+		updated := s.publisher.SupersedePrevious(existing, snapID)
+		for _, old := range updated {
+			if old == nil || old.ID == snapID {
+				continue
+			}
+			if old.Status == model.SnapSuperseded {
+				if err := s.snapshots.UpdateTx(tx, old); err != nil {
+					return err
+				}
+			}
+		}
 		if err := s.snapshots.UpdateTx(tx, snap); err != nil {
 			return err
 		}

@@ -64,8 +64,19 @@ func NewPublisher() *Publisher {
 	return &Publisher{now: time.Now}
 }
 
-// SupersedePrevious 把批次内已发布快照置为被替代（发布新快照前调用）。
+// SupersedePrevious 把批次内已发布的旧快照置为被替代（发布新快照前调用）。
+// newID 指向即将发布的新快照，本身不会被替代；仅 SnapPublished 的旧快照会被替代，
+// 草稿与已替代的快照保持原状。返回更新后的切片，调用方需在事务内持久化每个变动的快照。
 func (p *Publisher) SupersedePrevious(existing []*model.LocSnapshot, newID int64) []*model.LocSnapshot {
-	_ = newID
+	for _, snap := range existing {
+		if snap == nil || snap.ID == newID {
+			continue
+		}
+		if snap.Status != model.SnapPublished {
+			continue
+		}
+		// 旧已发布快照只能成功替代或因状态非法跳过，这里静默跳过不影响新快照发布。
+		_ = snap.Supersede(newID)
+	}
 	return existing
 }
