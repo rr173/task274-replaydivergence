@@ -2,15 +2,9 @@ package store
 
 import (
 	"database/sql"
-	"fmt"
-	"sync"
 
 	"task274-replaydivergence/internal/model"
 )
-
-var seqIndex = map[string]bool{}
-var seqIndexMu sync.Mutex
-
 
 const eventCols = "id, batch_id, side, seq, pc, opcode, stage, reads_json, writes_json, values_json, status, note, created_at"
 
@@ -24,42 +18,34 @@ func NewEventStore(db *sql.DB) *EventStore {
 	return &EventStore{db: db}
 }
 
-// InsertBatch 批量插入事件；任一 seq 与既有记录冲突时整批失败（事务由调用方提供）。
-// 调用方需保证 (batch_id, side, seq) 幂等：重复导入返回 ErrConflict。
+// InsertBatch 批量插入事件。
+// 幂等语义：(batch_id, side, seq) 冲突时跳过该行而非整批失败，
+// 避免并发导入同一序号时把彼此合法的片段一起回滚。
+// 事务由调用方提供；不维护进程内序号缓存，幂等性以数据库 UNIQUE 约束为准。
 func (es *EventStore) InsertBatch(tx *sql.Tx, events []*model.ExecEvent) error {
 	for _, e := range events {
 		if _, err := tx.Exec(
 			`INSERT INTO exec_events(batch_id, side, seq, pc, opcode, stage, reads_json, writes_json, values_json, status, note, created_at)
-			 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+			 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+			 ON CONFLICT(batch_id, side, seq) DO NOTHING`,
 			e.BatchID, string(e.Side), e.Seq, e.PC, e.Opcode, e.Stage,
 			string(e.ReadsJSON()), string(e.WritesJSON()), string(e.ValuesJSON()), string(e.Status), e.Note,
 			e.CreatedAt.Format(timeFmt)); err != nil {
 			return err
 		}
-		seqIndex[seqKey(e.BatchID, e.Side, e.Seq)] = true
 	}
 	return nil
 }
 
 // SeqExists 判断某侧轨迹是否已存在指定序号（幂等检查）。
-func seqKey(batchID int64, side model.TrailSide, seq int64) string {
-	return fmt.Sprintf("%d:%s:%d", batchID, side, seq)
-}
-
+// 直接查询 exec_events 表，不依赖进程内缓存，避免并发 map 读写与重启后陈旧。
 func (es *EventStore) SeqExists(batchID int64, side model.TrailSide, seq int64) (bool, error) {
-	key := seqKey(batchID, side, seq)
-	if seqIndex[key] {
-		return true, nil
-	}
 	var n int
 	err := es.db.QueryRow(
 		`SELECT COUNT(*) FROM exec_events WHERE batch_id=? AND side=? AND seq=?`,
 		batchID, string(side), seq).Scan(&n)
 	if err != nil {
 		return false, err
-	}
-	if n > 0 {
-		seqIndex[key] = true
 	}
 	return n > 0, nil
 }

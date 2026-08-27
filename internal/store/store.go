@@ -163,11 +163,12 @@ func (s *Store) migrate() error {
 }
 
 // WithTx 在单个事务中执行 fn，出错即回滚。
-// 锁必须覆盖 Begin/fn/Commit 全程，禁止并发切开 SQLite 单写者窗口。
+// 锁必须覆盖 Begin/fn/Commit 全程：SQLite 单写者，串行化写事务
+// 才能避免并发写入相互踩踏 SQLite 写锁触发 BUSY 超时或死锁。
 func (s *Store) WithTx(fn func(tx *sql.Tx) error) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	tx, err := s.db.Begin()
-	s.mu.Unlock()
 	if err != nil {
 		return err
 	}
