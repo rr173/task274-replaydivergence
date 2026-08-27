@@ -33,7 +33,9 @@ func (s *Service) CreateBatch(name, ref, test, algo string) (*model.ReplayBatch,
 
 // ImportEvents 导入一侧轨迹的事件片段（幂等：重复序号跳过）。
 func (s *Service) ImportEvents(ctx context.Context, batchID int64, side model.TrailSide, inputs []trace.EventInput) (*trace.ValidationResult, error) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	b, err := s.batches.Get(batchID)
 	if err != nil {
 		return nil, err
@@ -53,6 +55,10 @@ func (s *Service) ImportEvents(ctx context.Context, batchID int64, side model.Tr
 	}
 	if len(events) == 0 {
 		return res, nil
+	}
+	// 调用方取消后不再落库：避免把已取消请求的事件写入。
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	now := time.Now().UTC()
 	for _, e := range events {
@@ -140,8 +146,11 @@ func (s *Service) Sync(batchID int64) (*syncResult, error) {
 
 // ScanFingerprints 对每个可信检查点回放双侧状态并持久化指纹。
 // 返回已扫描的检查点数量。
+// 调用方取消后立即停止：已落库的检查点保留，剩余检查点不再写入。
 func (s *Service) ScanFingerprints(ctx context.Context, batchID int64) (int, error) {
-	_ = ctx
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	b, err := s.batches.Get(batchID)
 	if err != nil {
 		return 0, err
@@ -172,6 +181,10 @@ func (s *Service) ScanFingerprints(ctx context.Context, batchID int64) (int, err
 	for _, cp := range cps {
 		if cp.IsUnreliable() {
 			continue
+		}
+		// 落库前检查取消：调用方取消后立即停止，剩余检查点不再写指纹。
+		if err := ctx.Err(); err != nil {
+			return count, err
 		}
 		if err := replayer.Replay(refState, eventsUpTo(refEvents, cp.Seq)); err != nil {
 			return count, err

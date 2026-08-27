@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 
@@ -82,7 +81,7 @@ func (s *Server) handleScanFingerprints(w http.ResponseWriter, r *http.Request) 
 		s.writeErr(w, err)
 		return
 	}
-	n, err := s.svc.ScanFingerprints(context.Background(), id)
+	n, err := s.svc.ScanFingerprints(r.Context(), id)
 	if err != nil {
 		s.writeErr(w, err)
 		return
@@ -147,7 +146,7 @@ func (s *Server) handleTraceDivergence(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, err)
 		return
 	}
-	out, err := s.svc.TraceDivergence(context.Background(), id, did)
+	out, err := s.svc.TraceDivergence(r.Context(), id, did)
 	if err != nil {
 		s.writeErr(w, err)
 		return

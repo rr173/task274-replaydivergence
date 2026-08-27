@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 
@@ -26,7 +25,7 @@ func (s *Server) handleImportEvents(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, err)
 		return
 	}
-	res, err := s.svc.ImportEvents(context.Background(), id, req.Side, req.Events)
+	res, err := s.svc.ImportEvents(r.Context(), id, req.Side, req.Events)
 	if err != nil {
 		s.writeErr(w, err)
 		return
