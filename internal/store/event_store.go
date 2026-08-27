@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"fmt"
 
 	"task274-replaydivergence/internal/model"
 )
@@ -10,18 +9,17 @@ import (
 const eventCols = "id, batch_id, side, seq, pc, opcode, stage, reads_json, writes_json, values_json, status, note, created_at"
 
 // EventStore 封装 exec_events 表。
+//
+// 列表查询不缓存：事件可被导入（InsertBatch）与改状态（UpdateStatus /
+// BatchUpdateStatus）反复修改，缓存首查结果会变成过期快照，导致后续导入的
+// 指令在同步/指纹/回放时被静默丢弃。每次列表都直接读库，保证看到最新数据。
 type EventStore struct {
-	db    *sql.DB
-	cache map[string][]*model.ExecEvent
+	db *sql.DB
 }
 
 // NewEventStore 构造事件仓储。
 func NewEventStore(db *sql.DB) *EventStore {
-	return &EventStore{db: db, cache: map[string][]*model.ExecEvent{}}
-}
-
-func eventCacheKey(batchID int64, side model.TrailSide, status model.EventStatus) string {
-	return fmt.Sprintf("%d:%s:%s", batchID, side, status)
+	return &EventStore{db: db}
 }
 
 // InsertBatch 批量插入事件；任一 seq 与既有记录冲突时整批失败（事务由调用方提供）。
@@ -61,10 +59,6 @@ func (es *EventStore) ListBySide(batchID int64, side model.TrailSide, status mod
 		args = append(args, string(status))
 	}
 	query += ` ORDER BY seq ASC`
-	key := eventCacheKey(batchID, side, status)
-	if hit, ok := es.cache[key]; ok {
-		return hit, nil
-	}
 	rows, err := es.db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -74,7 +68,6 @@ func (es *EventStore) ListBySide(batchID int64, side model.TrailSide, status mod
 	if err != nil {
 		return nil, err
 	}
-	es.cache[key] = out
 	return out, nil
 }
 
