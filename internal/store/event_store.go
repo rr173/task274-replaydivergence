@@ -132,16 +132,16 @@ func scanEvent(sc eventScanner) (*model.ExecEvent, error) {
 	return &e, nil
 }
 
-var eventScratch []*model.ExecEvent
-
 func scanEvents(rows *sql.Rows) ([]*model.ExecEvent, error) {
-	eventScratch = eventScratch[:0]
+	// 每次查询独立分配结果切片：连续两次查询（参考/待测轨迹）各自持有
+	// 互不干扰的事件列表，避免共享底层切片导致先返回的列表被后一次查询改写。
+	out := make([]*model.ExecEvent, 0)
 	for rows.Next() {
 		e, err := scanEvent(rows)
 		if err != nil {
 			return nil, err
 		}
-		eventScratch = append(eventScratch, e)
+		out = append(out, e)
 	}
-	return eventScratch, rows.Err()
+	return out, rows.Err()
 }

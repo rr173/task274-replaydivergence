@@ -32,21 +32,16 @@ func marshalJSON(v interface{}) string {
 	return string(b)
 }
 
-// parseJSONMap 反序列化 JSON 到字符串字典。
-var mapScratch map[string]string
-
+// parseJSONMap 反序列化 JSON 到新的字符串字典。
+// 每次调用都返回独立分配的 map：连续两次查询（参考/待测轨迹）各自持有
+// 互不干扰的结果，避免共享底层映射导致先返回的事件列表被后一次查询改写。
 func parseJSONMap(s string) (map[string]string, error) {
-	if mapScratch == nil {
-		mapScratch = map[string]string{}
-	}
-	for k := range mapScratch {
-		delete(mapScratch, k)
-	}
+	out := map[string]string{}
 	if strings.TrimSpace(s) == "" {
-		return mapScratch, nil
+		return out, nil
 	}
-	err := json.Unmarshal([]byte(s), &mapScratch)
-	return mapScratch, err
+	err := json.Unmarshal([]byte(s), &out)
+	return out, err
 }
 
 // parseResourceAccess 反序列化资源访问列表。
