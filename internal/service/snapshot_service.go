@@ -17,7 +17,9 @@ func (s *Service) CreateSnapshot(batchID int64, name string) (*model.LocSnapshot
 		return nil, err
 	}
 	if b.IsSealed() {
-		return nil, fmt.Errorf("sealed batch: %v", model.ErrSealedBatch)
+		// 用 %w 包裹领域哨兵错误，使接口层能经 errors.Is 识别 ErrSealedBatch
+		// 并映射为 422，而非泄漏为内部 500。
+		return nil, fmt.Errorf("sealed batch %d: %w", batchID, model.ErrSealedBatch)
 	}
 	if b.Status != model.BatchConfirmed && b.Status != model.BatchPendingLoc {
 		return nil, model.ErrInvalidState

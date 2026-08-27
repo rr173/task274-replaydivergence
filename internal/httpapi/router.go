@@ -3,6 +3,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -77,15 +78,18 @@ func (s *Server) writeJSON(w http.ResponseWriter, status int, v interface{}) {
 }
 
 // writeErr 把领域错误映射为 HTTP 状态码。
+// service 层经 fmt.Errorf("...: %w", sentinel) 包裹领域哨兵错误，故这里
+// 必须用 errors.Is 沿错误链回溯，而非直接 == 比对；否则封存等被包裹的
+// 领域状态会被识别为内部错误并泄漏为 500。
 func (s *Server) writeErr(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	switch {
-	case err == model.ErrNotFound:
+	case errors.Is(err, model.ErrNotFound):
 		status = http.StatusNotFound
-	case err == model.ErrConflict, err == model.ErrFingerprintMissing:
+	case errors.Is(err, model.ErrConflict), errors.Is(err, model.ErrFingerprintMissing):
 		status = http.StatusConflict
-	case err == model.ErrInvalidState, err == model.ErrSealedBatch,
-		err == model.ErrRangeLocked, err == model.ErrDependencyCycle:
+	case errors.Is(err, model.ErrInvalidState), errors.Is(err, model.ErrSealedBatch),
+		errors.Is(err, model.ErrRangeLocked), errors.Is(err, model.ErrDependencyCycle):
 		status = http.StatusUnprocessableEntity
 	}
 	s.writeJSON(w, status, map[string]string{"error": err.Error()})

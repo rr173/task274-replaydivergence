@@ -41,7 +41,11 @@ func (s *Service) ImportEvents(ctx context.Context, batchID int64, side model.Tr
 		return nil, err
 	}
 	if b.IsSealed() {
-		return nil, fmt.Errorf("sealed batch: %v", model.ErrSealedBatch)
+		// 用 %w 包裹领域哨兵错误，使接口层能经 errors.Is 识别 ErrSealedBatch
+		// 并映射为 422，而非泄漏为内部 500。
+		// 用 %w 包裹领域哨兵错误，使接口层能经 errors.Is 识别 ErrSealedBatch
+		// 并映射为 422，而非泄漏为内部 500。
+		return nil, fmt.Errorf("sealed batch %d: %w", batchID, model.ErrSealedBatch)
 	}
 	if !model.IsValidTrailSide(side) {
 		return nil, fmt.Errorf("invalid trail side %q", side)
