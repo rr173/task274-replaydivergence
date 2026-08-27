@@ -29,7 +29,8 @@ func (fs *FingerprintStore) Upsert(f *model.StateFingerprint) error {
 	return err
 }
 
-// GetPair 返回同一 (seq, scope) 的双侧指纹对；任一侧缺失返回 ErrFingerprintMissing 语义（由调用方处理）。
+// GetPair 返回同一 (seq, scope) 的双侧指纹对；任一侧缺失（未扫描或仅单侧写入）
+// 返回 ErrFingerprintMissing，由调用方据此跳过或中止比较。
 func (fs *FingerprintStore) GetPair(batchID int64, seq int64, scope model.FingerprintScope) (*model.FingerprintPair, error) {
 	var pair model.FingerprintPair
 	pair.Seq = seq
@@ -60,7 +61,9 @@ func (fs *FingerprintStore) GetPair(batchID int64, seq int64, scope model.Finger
 		return nil, err
 	}
 	if !refFound || !testFound {
-		return nil, nil
+		// 任一侧指纹缺失：必须返回可识别错误而非 nil，否则上层 Compare 会拿到
+		// nil pair + nil err，继续解引用 pair 触发空指针崩溃。
+		return nil, model.ErrFingerprintMissing
 	}
 	pair.RefHash = refHash
 	pair.TestHash = testHash
