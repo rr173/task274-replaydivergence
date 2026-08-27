@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -44,10 +45,12 @@ func (s *Service) Compare(ctx context.Context, batchID int64) (*CompareOutcome, 
 		if cp.IsUnreliable() {
 			continue
 		}
+		// 缺指纹属于前置条件未满足（未扫描）：按冲突状态返回，批次不得前进。
+		// GetPair 在任一侧指纹缺失时返回 ErrFingerprintMissing，用 errors.Is 判定。
 		pair, err := s.fingerprints.GetPair(batchID, cp.Seq, cp.Scope())
 		if err != nil {
-			if err == model.ErrFingerprintMissing {
-				continue
+			if errors.Is(err, model.ErrFingerprintMissing) {
+				return nil, model.ErrFingerprintMissing
 			}
 			return nil, fmt.Errorf("compare fingerprints: %v", err)
 		}
@@ -84,11 +87,10 @@ func (s *Service) Compare(ctx context.Context, batchID int64) (*CompareOutcome, 
 			out.Matched++
 		}
 	}
+	// 没有可比较的检查点（全部不可信）时，不视为成功：批次不得静默前进到
+	// pending_loc。比较阶段要求先扫描指纹并对可信检查点有可比结果。
 	if out.Scanned == 0 {
-		if err := b.Transition(model.BatchPendingLoc); err == nil {
-			_ = s.batches.Update(b)
-		}
-		return out, nil
+		return nil, model.ErrFingerprintMissing
 	}
 	if err := b.Transition(model.BatchPendingLoc); err != nil {
 		return nil, err

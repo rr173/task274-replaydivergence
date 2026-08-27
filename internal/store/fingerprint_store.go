@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"fmt"
 
 	"task274-replaydivergence/internal/model"
 )
@@ -61,7 +60,8 @@ func (fs *FingerprintStore) GetPair(batchID int64, seq int64, scope model.Finger
 		return nil, err
 	}
 	if !refFound || !testFound {
-		return nil, fmt.Errorf("fingerprint missing: %v", model.ErrFingerprintMissing)
+		// 任一侧缺失：返回哨兵错误本身（errors.Is 必须可识别），供上层按冲突状态处理。
+		return nil, model.ErrFingerprintMissing
 	}
 	pair.RefHash = refHash
 	pair.TestHash = testHash
